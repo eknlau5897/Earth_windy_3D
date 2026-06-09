@@ -15,7 +15,7 @@ while true; do
     
     # Execute Python streaming data pipeline via Caffeinate assertion lock
     echo "Streaming slices directly to memory (Preventing system sleep)..."
-    caffeinate -i python3 wind.py --date "$TARGET_RUN" --output-dir "$DATA_DIR"
+    caffeinate -i python3.11 wind.py --date "$TARGET_RUN" --output-dir "$DATA_DIR"
     echo "Matrix translation loop finished successfully."
     
     # Cache Cleaning Routine
