@@ -55,7 +55,7 @@ while true; do
         fi
         
         echo "[FALLBACK] Rerouting pipeline engine to: $TARGET_RUN"
-        caffeinate -i python3 wind.py --date "$TARGET_RUN" --output-dir "$DATA_DIR"
+        caffeinate -i python3.11 wind.py --date "$TARGET_RUN" --output-dir "$DATA_DIR"
     fi
     
     echo "Matrix translation loop finished successfully."
