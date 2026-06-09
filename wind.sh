@@ -14,7 +14,7 @@ while true; do
     TARGET_RUN=$(date -u +"%Y-%m-%d 00:00")
     
     # 1. Run the extraction pipeline
-    caffeinate -i python3 src/process_wind.py --date "$TARGET_RUN" --output-dir "$DATA_DIR"
+    caffeinate -i python3.11 src/wind.py --date "$TARGET_RUN" --output-dir "$DATA_DIR"
     
     # 2. Storage Cleanup Phase
     echo "Initiating history and raw file cache purge..."
