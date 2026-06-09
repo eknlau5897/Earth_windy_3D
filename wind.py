@@ -9,24 +9,23 @@ from herbie import Herbie
 LEVELS = ["10m", "850", "700", "500", "200"]
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Download multi-level global wind forecast time-series")
+    parser = argparse.ArgumentParser(description="Stream global wind fields via xarray")
     parser.add_argument("--date", type=str, required=True, help="Date format YYYY-MM-DD HH:MM")
     parser.add_argument("--output-dir", type=str, default="./data", help="Output destination folder")
     return parser.parse_args()
 
 def generate_forecast_hours():
-    phase1 = list(range(0, 121, 6))       
-    phase2 = list(range(132, 241, 12))    
-    return phase1 + phase2
+    # Phase 1: 0-120h every 6 hours; Phase 2: 120-240h every 12 hours
+    return list(range(0, 121, 6)) + list(range(132, 241, 12))
 
 def get_search_string(model, level):
     if model == "gfs":
         return ":[U|V]GRD:10 m" if level == "10m" else f":[U|V]GRD:{level} mb"
-    else:  
+    else:  # ecmwf (ifs/aifs)
         return ":(u|v):10m" if level == "10m" else f":(u|v):{level}"
 
 def extract_forecast_step(model_name, dt_str, level, fxx, output_dir):
-    print(f" -> {model_name.upper()} | Level: {level} | Forecast Hour: +{fxx}h")
+    print(f" -> Streaming {model_name.upper()} | Level: {level} | Forecast: +{fxx}h")
     
     herbie_model = "gfs" if model_name == "gfs" else model_name
     product = "0p25" if model_name == "gfs" else "oper"
@@ -36,13 +35,18 @@ def extract_forecast_step(model_name, dt_str, level, fxx, output_dir):
     png_path = os.path.join(output_dir, f"{file_prefix}.png")
     json_path = os.path.join(output_dir, f"{file_prefix}.json")
 
+    # Skip processing if this time step is already cached in your repo
     if os.path.exists(png_path) and os.path.exists(json_path):
         return
 
     try:
+        # Initialize Herbie targeting cloud sources
         H = Herbie(dt_str, model=herbie_model, product=product, fxx=fxx, priority=["aws", "azure", "ecmwf"])
+        
+        # STREAM DATA: Loads the filtered subset directly into memory via xarray
         ds = H.xarray(search)
         
+        # Match standard variable identities
         u_key = [k for k in ds.data_vars if k.lower() in ['u10', 'u', 'u_grd']][0]
         v_key = [k for k in ds.data_vars if k.lower() in ['v10', 'v', 'v_grd']][0]
         
@@ -51,6 +55,7 @@ def extract_forecast_step(model_name, dt_str, level, fxx, output_dir):
         lons = ds['longitude'].values
         lats = ds['latitude'].values
         
+        # Normalize Longitudes from [0, 360] to standard [-180, 180]
         if np.max(lons) > 180:
             lons = np.where(lons > 180, lons - 360, lons)
             idx = np.argsort(lons)
@@ -58,6 +63,7 @@ def extract_forecast_step(model_name, dt_str, level, fxx, output_dir):
             u_raw = u_raw[:, idx] if u_raw.ndim == 2 else u_raw[0, :, idx]
             v_raw = v_raw[:, idx] if v_raw.ndim == 2 else v_raw[0, :, idx]
 
+        # Flip latitudes if they run South to North
         if lats[0] < lats[-1]:
             lats = lats[::-1]
             u_raw = u_raw[::-1, :]
@@ -66,6 +72,7 @@ def extract_forecast_step(model_name, dt_str, level, fxx, output_dir):
         if u_raw.ndim > 2: u_raw = u_raw.squeeze()
         if v_raw.ndim > 2: v_raw = v_raw.squeeze()
 
+        # Scale and Encode U and V data vectors into 0-255 RGB channels
         u_min, u_max = float(np.min(u_raw)), float(np.max(u_raw))
         v_min, v_max = float(np.min(v_raw)), float(np.max(v_raw))
         
@@ -77,6 +84,7 @@ def extract_forecast_step(model_name, dt_str, level, fxx, output_dir):
         rgb_buffer[..., 0] = u_norm.astype(np.uint8)
         rgb_buffer[..., 1] = v_norm.astype(np.uint8)
         
+        # Save output assets
         Image.fromarray(rgb_buffer).save(png_path)
         
         metadata = {
@@ -87,6 +95,9 @@ def extract_forecast_step(model_name, dt_str, level, fxx, output_dir):
         
         with open(json_path, "w") as f:
             json.dump(metadata, f, indent=4)
+            
+        # Explicitly close dataset to free RAM instantly
+        ds.close()
             
     except Exception as e:
         print(f"   [ERROR] Skipping {model_name} @ {level} fxx={fxx}: {str(e)}", file=sys.stderr)

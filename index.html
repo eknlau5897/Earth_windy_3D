@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Global 4D Layered Forecast Wind Globe</title>
+  <title>Global 4D Forecast Wind Globe (xarray Streamed)</title>
   <script src="https://cesium.com/downloads/cesiumjs/releases/1.115/Build/Cesium/Cesium.js"></script>
   <link href="https://cesium.com/downloads/cesiumjs/releases/1.115/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
   <style>
@@ -67,7 +67,7 @@
       
       document.getElementById("timeLabel").innerText = `+${fxx} hours`;
       const display = document.getElementById("metaDisplay");
-      display.innerHTML = `Querying data stack...`;
+      display.innerHTML = `Querying data maps...`;
 
       try {
         if (activePrimitive) viewer.scene.primitives.remove(activePrimitive);
