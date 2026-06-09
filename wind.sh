@@ -1,9 +1,8 @@
 #!/bin/bash
 set -e
 
-INTERVAL=$((6 * 60 * 60)) # 6 hours
+INTERVAL=$((6 * 60 * 60)) 
 DATA_DIR="./data"
-HERBIE_CACHE_DIR="$HOME/src/herbie_data"
 
 echo "=========================================================="
 echo " Starting Streaming, Caffeinated Weather Daemon (wind.sh)"
@@ -15,16 +14,12 @@ while true; do
     
     # Execute Python streaming data pipeline via Caffeinate assertion lock
     echo "Streaming slices directly to memory (Preventing system sleep)..."
-    caffeinate -i python3.11 wind.py --date "$TARGET_RUN" --output-dir "$DATA_DIR"
+    caffeinate -i python3 wind.py --date "$TARGET_RUN" --output-dir "$DATA_DIR"
     echo "Matrix translation loop finished successfully."
     
-    # Cache Cleaning Routine
-    echo "Cleaning memory index remnants and metadata history..."
-    if [ -d "$HERBIE_CACHE_DIR" ]; then
-        rm -rf "$HERBIE_CACHE_DIR"/*
-    fi
-    # Wipe any local hidden tracking or network artifact files
-    find . -type f \( -name "*.idx" -o -name "*.tmp" -o -name "*.log" \) -delete
+    # Safe environmental workspace cleanup
+    echo "Cleaning residual index maps..."
+    find . -type f \( -name "*.idx" -o -name "*.tmp" -o -name "*.log" \) -delete 2>/dev/null || true
     echo "Local workspace clean."
     
     # Single Unified Git Transaction

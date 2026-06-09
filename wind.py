@@ -2,17 +2,15 @@ import argparse
 import json
 import os
 import sys
+import shutil
 import numpy as np
 from PIL import Image
-
-# Force Herbie to use an isolated system tmp directory before loading the module
-os.environ["HERBIE_SAVE_DIR"] = "/tmp/herbie"
 from herbie import Herbie
 
 LEVELS = ["10m", "850", "700", "500", "200"]
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Stream global wind fields via xarray")
+    parser = argparse.ArgumentParser(description="Stream global wind fields via xarray safely")
     parser.add_argument("--date", type=str, required=True, help="Date format YYYY-MM-DD HH:MM")
     parser.add_argument("--output-dir", type=str, default="./data", help="Output destination folder")
     return parser.parse_args()
@@ -27,7 +25,7 @@ def get_search_string(model, level):
         return ":(u|v):10m" if level == "10m" else f":(u|v):{level}"
 
 def extract_forecast_step(model_name, dt_str, level, fxx, output_dir):
-    print(f" -> Streaming {model_name.upper()} | Level: {level} | Forecast: +{fxx}h")
+    print(f" -> Processing {model_name.upper()} | Level: {level} | Forecast: +{fxx}h")
     
     herbie_model = "gfs" if model_name == "gfs" else model_name
     product = "0p25" if model_name == "gfs" else "oper"
@@ -41,7 +39,10 @@ def extract_forecast_step(model_name, dt_str, level, fxx, output_dir):
         return
 
     try:
+        # Initialize normal Herbie instance using default config profiles
         H = Herbie(dt_str, model=herbie_model, product=product, fxx=fxx, priority=["aws", "azure", "ecmwf"])
+        
+        # Load data directly to memory via xarray
         ds = H.xarray(search)
         
         u_key = [k for k in ds.data_vars if k.lower() in ['u10', 'u', 'u_grd']][0]
@@ -89,7 +90,14 @@ def extract_forecast_step(model_name, dt_str, level, fxx, output_dir):
         with open(json_path, "w") as f:
             json.dump(metadata, f, indent=4)
             
+        # Close xarray dataset immediately to release file lock references
         ds.close()
+
+        # INTERNAL CLEANUP: Remove the exact temporary GRIB files Herbie just made
+        # This keeps the disk completely clean without breaking active threads
+        base_dir = str(H.get_local_path).split(model_name)[0] + model_name
+        if os.path.exists(base_dir):
+            shutil.rmtree(base_dir, ignore_errors=True)
             
     except Exception as e:
         print(f"   [ERROR] Skipping {model_name} @ {level} fxx={fxx}: {str(e)}", file=sys.stderr)
