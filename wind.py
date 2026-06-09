@@ -20,10 +20,9 @@ def generate_forecast_hours():
 
 def get_search_string(model, level):
     if model == "gfs":
-        # NOAA GFS handles surface layer as standard text tags
-        return ":[U|V]GRD:10 m" if level == "10m" else f":[U|V]GRD:{level} mb"
+        # Explicitly targets only surface layers, bypassing structural overlap constraints
+        return ":[U|V]GRD:10 m above ground" if level == "10m" else f":[U|V]GRD:{level} mb"
     else:  
-        # FIXED: ECMWF (IFS/AIFS) searches strictly format surface layers as :10u: and :10v:
         return ":10[u|v]:" if level == "10m" else f":(u|v):{level}"
 
 def extract_forecast_step(model_name, dt_str, level, fxx, output_dir):
@@ -41,13 +40,10 @@ def extract_forecast_step(model_name, dt_str, level, fxx, output_dir):
         return
 
     try:
-        # Initialize normal Herbie instance using default config profiles
         H = Herbie(dt_str, model=herbie_model, product=product, fxx=fxx, priority=["aws", "azure", "ecmwf"])
-        
-        # Load data directly to memory via xarray
         ds = H.xarray(search)
         
-        # Dynamic variable mapping to bridge NOAA and ECMWF differences
+        # Cross-reference variable markers for both agency structures
         u_key = [k for k in ds.data_vars if k.lower() in ['u10', 'u', 'u_grd', '10u']][0]
         v_key = [k for k in ds.data_vars if k.lower() in ['v10', 'v', 'v_grd', '10v']][0]
         
@@ -93,10 +89,9 @@ def extract_forecast_step(model_name, dt_str, level, fxx, output_dir):
         with open(json_path, "w") as f:
             json.dump(metadata, f, indent=4)
             
-        # Close xarray dataset immediately to release file lock references
         ds.close()
 
-        # INTERNAL CLEANUP: Target and drop the specific GRIB files created during this step execution loop
+        # Clean individual local footprints immediately
         base_dir = str(H.get_local_path).split(model_name)[0] + model_name
         if os.path.exists(base_dir):
             shutil.rmtree(base_dir, ignore_errors=True)
