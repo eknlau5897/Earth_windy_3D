@@ -20,7 +20,6 @@ def generate_forecast_hours():
 
 def get_search_string(model, level):
     if model == "gfs":
-        # Explicitly targets only surface layers, bypassing structural overlap constraints
         return ":[U|V]GRD:10 m above ground" if level == "10m" else f":[U|V]GRD:{level} mb"
     else:  
         return ":10[u|v]:" if level == "10m" else f":(u|v):{level}"
@@ -29,7 +28,6 @@ def extract_forecast_step(model_name, dt_str, level, fxx, output_dir):
     print(f" -> Processing {model_name.upper()} | Level: {level} | Forecast: +{fxx}h")
     
     herbie_model = "gfs" if model_name == "gfs" else model_name
-    product = "0p25" if model_name == "gfs" else "oper"
     search = get_search_string(model_name, level)
     
     file_prefix = f"{model_name}_{level}_{fxx}h_wind"
@@ -40,10 +38,11 @@ def extract_forecast_step(model_name, dt_str, level, fxx, output_dir):
         return
 
     try:
-        H = Herbie(dt_str, model=herbie_model, product=product, fxx=fxx, priority=["aws", "azure", "ecmwf"])
+        # RESOLVED: Removed the strict product property restriction. 
+        # Herbie automatically resolves to its correct default model template settings.
+        H = Herbie(dt_str, model=herbie_model, fxx=fxx, priority=["aws", "azure", "ecmwf"])
         ds = H.xarray(search)
         
-        # Cross-reference variable markers for both agency structures
         u_key = [k for k in ds.data_vars if k.lower() in ['u10', 'u', 'u_grd', '10u']][0]
         v_key = [k for k in ds.data_vars if k.lower() in ['v10', 'v', 'v_grd', '10v']][0]
         
@@ -91,7 +90,6 @@ def extract_forecast_step(model_name, dt_str, level, fxx, output_dir):
             
         ds.close()
 
-        # Clean individual local footprints immediately
         base_dir = str(H.get_local_path).split(model_name)[0] + model_name
         if os.path.exists(base_dir):
             shutil.rmtree(base_dir, ignore_errors=True)
