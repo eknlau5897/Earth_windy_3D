@@ -9,41 +9,45 @@ from herbie import Herbie
 LEVELS = ["10m", "850", "700", "500", "200"]
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Download multi-level global wind fields")
+    parser = argparse.ArgumentParser(description="Download multi-level global wind forecast time-series")
     parser.add_argument("--date", type=str, required=True, help="Date format YYYY-MM-DD HH:MM")
     parser.add_argument("--output-dir", type=str, default="./data", help="Output destination folder")
     return parser.parse_args()
 
-def get_search_string(model, level):
-    """Generates the appropriate GRIB search regex depending on the model profile."""
-    if model == "gfs":
-        if level == "10m":
-            return ":[U|V]GRD:10 m"
-        return f":[U|V]GRD:{level} mb"
-    else: # ecmwf profiles (ifs, aifs)
-        if level == "10m":
-            return ":(u|v):10m"
-        return f":(u|v):{level}"
+def generate_forecast_hours():
+    phase1 = list(range(0, 121, 6))       
+    phase2 = list(range(132, 241, 12))    
+    return phase1 + phase2
 
-def extract_layer(model_name, dt_str, level, output_dir):
-    print(f" -> Fetching {model_name.upper()} at level: {level}")
+def get_search_string(model, level):
+    if model == "gfs":
+        return ":[U|V]GRD:10 m" if level == "10m" else f":[U|V]GRD:{level} mb"
+    else:  
+        return ":(u|v):10m" if level == "10m" else f":(u|v):{level}"
+
+def extract_forecast_step(model_name, dt_str, level, fxx, output_dir):
+    print(f" -> {model_name.upper()} | Level: {level} | Forecast Hour: +{fxx}h")
     
     herbie_model = "gfs" if model_name == "gfs" else model_name
     product = "0p25" if model_name == "gfs" else "oper"
     search = get_search_string(model_name, level)
     
+    file_prefix = f"{model_name}_{level}_{fxx}h_wind"
+    png_path = os.path.join(output_dir, f"{file_prefix}.png")
+    json_path = os.path.join(output_dir, f"{file_prefix}.json")
+
+    if os.path.exists(png_path) and os.path.exists(json_path):
+        return
+
     try:
-        H = Herbie(dt_str, model=herbie_model, product=product, fxx=0, priority=["aws", "azure", "ecmwf"])
+        H = Herbie(dt_str, model=herbie_model, product=product, fxx=fxx, priority=["aws", "azure", "ecmwf"])
         ds = H.xarray(search)
         
-        # Identity match on data variables
         u_key = [k for k in ds.data_vars if k.lower() in ['u10', 'u', 'u_grd']][0]
         v_key = [k for k in ds.data_vars if k.lower() in ['v10', 'v', 'v_grd']][0]
         
         u_raw = ds[u_key].values
         v_raw = ds[v_key].values
-        
-        # Handle coordinate system variations
         lons = ds['longitude'].values
         lats = ds['latitude'].values
         
@@ -59,11 +63,9 @@ def extract_layer(model_name, dt_str, level, output_dir):
             u_raw = u_raw[::-1, :]
             v_raw = v_raw[::-1, :]
             
-        # Strip dimensional metadata variations if multi-layered structures bleed into xarray
         if u_raw.ndim > 2: u_raw = u_raw.squeeze()
         if v_raw.ndim > 2: v_raw = v_raw.squeeze()
 
-        # Matrix Normalization
         u_min, u_max = float(np.min(u_raw)), float(np.max(u_raw))
         v_min, v_max = float(np.min(v_raw)), float(np.max(v_raw))
         
@@ -75,27 +77,27 @@ def extract_layer(model_name, dt_str, level, output_dir):
         rgb_buffer[..., 0] = u_norm.astype(np.uint8)
         rgb_buffer[..., 1] = v_norm.astype(np.uint8)
         
-        # Format names cleanly: e.g., gfs_850_wind.png
-        file_prefix = f"{model_name}_{level}_wind"
-        Image.fromarray(rgb_buffer).save(os.path.join(output_dir, f"{file_prefix}.png"))
+        Image.fromarray(rgb_buffer).save(png_path)
         
         metadata = {
-            "model": model_name, "level": level, "refTime": dt_str, "width": w, "height": h,
+            "model": model_name, "level": level, "forecastHour": fxx, "refTime": dt_str, "width": w, "height": h,
             "bounds": [float(np.min(lons)), float(np.min(lats)), float(np.max(lons)), float(np.max(lats))],
             "uMin": u_min, "uMax": u_max, "vMin": v_min, "vMax": v_max
         }
         
-        with open(os.path.join(output_dir, f"{file_prefix}.json"), "w") as f:
+        with open(json_path, "w") as f:
             json.dump(metadata, f, indent=4)
             
     except Exception as e:
-        print(f"   [ERROR] Skipping {model_name} @ {level}: {str(e)}", file=sys.stderr)
+        print(f"   [ERROR] Skipping {model_name} @ {level} fxx={fxx}: {str(e)}", file=sys.stderr)
 
 if __name__ == "__main__":
     args = parse_args()
     os.makedirs(args.output_dir, exist_ok=True)
     
+    forecast_hours = generate_forecast_hours()
+    
     for model in ["gfs", "ifs", "aifs"]:
-        print(f"\nProcessing Group: {model.upper()}")
         for lvl in LEVELS:
-            extract_layer(model, args.date, lvl, args.output_dir)
+            for fxx in forecast_hours:
+                extract_forecast_step(model, args.date, lvl, fxx, args.output_dir)
